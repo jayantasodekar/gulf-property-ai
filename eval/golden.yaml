@@ -26,6 +26,10 @@ cases:
       all_city: Jeddah
       max_price_usd: 533200      # 2,000,000 SAR
       min_bedrooms: 3
+      # A price ceiling in the millions is purchase language. Without this the
+      # case passed while returning 38,000 SAR/year rentals: every rental sits
+      # under any sale-sized ceiling, so they swept the top of the ranking.
+      all_listing_type: sale
 
   - id: price-ceiling-riyadh
     question: "Villas in Riyadh under 3 million SAR"

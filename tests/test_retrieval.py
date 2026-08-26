@@ -277,3 +277,41 @@ def test_corpus_stats(retriever: Retriever) -> None:
     st = retriever.corpus_stats()
     assert st["total"] == 4
     assert st["by_source"] == {"wasalt": 3, "darglobal": 1}
+
+
+# ------------------------------------------------------------------ #
+#  Sale/rent disambiguation from a price bound
+# ------------------------------------------------------------------ #
+def test_price_bound_above_rent_range_implies_sale(retriever: Retriever) -> None:
+    """"Apartments under 2M SAR" is purchase language, even without "buy".
+
+    A ceiling that admits every rental cannot have been meant to filter
+    rentals, and rents sit an order of magnitude below sale prices, so
+    leaving listing_type unset lets cheap rentals monopolise the results.
+    """
+    resolved = retriever.resolve_price_intent(Filters(max_price_usd=500_000))
+    assert resolved.listing_type == "sale"
+
+
+def test_price_bound_below_sale_range_implies_rent(retriever: Retriever) -> None:
+    resolved = retriever.resolve_price_intent(Filters(max_price_usd=9_000))
+    assert resolved.listing_type == "rent"
+
+
+def test_explicit_listing_type_is_never_overridden(retriever: Retriever) -> None:
+    resolved = retriever.resolve_price_intent(
+        Filters(max_price_usd=500_000, listing_type="rent")
+    )
+    assert resolved.listing_type == "rent"
+
+
+def test_no_price_bound_stays_ambiguous(retriever: Retriever) -> None:
+    """Without a bound there is no signal, so nothing is assumed."""
+    resolved = retriever.resolve_price_intent(Filters(city="Jeddah"))
+    assert resolved.listing_type is None
+
+
+def test_price_bounded_search_excludes_rentals(retriever: Retriever) -> None:
+    """End-to-end: the regression this guards against."""
+    out = retriever.search("apartment", Filters(max_price_usd=500_000), k=5)
+    assert out and not any(r["listing_type"] == "rent" for r in out)

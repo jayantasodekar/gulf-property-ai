@@ -228,6 +228,38 @@ wrong, and the failure is invisible because the number looks plausible. Three fi
    The mixed aggregate is now flagged with a per-`listing_type` breakdown, and the
    model is told to ask which the user meant rather than answer it.
 
+### Sale and rent are not the same quantity
+
+Guarding the *aggregate* turned out not to be enough. The same confusion reaches
+**search**, and there it is worse, because nothing flags it — the results simply
+look plausible.
+
+"3-bedroom apartments in Jeddah under 2 million SAR" contains no rent/sale word,
+so `listing_type` stays unset and the SQL filter admits both. Every rental passes
+a sale-sized ceiling, and since an annual rent is an order of magnitude below a
+purchase price, rentals then sweep the ranking *by being cheap*:
+
+```
+before:  38,000 SAR · 100,000 SAR · 130,000 SAR   ← all rentals, all "under 2M"
+after:  645,000 SAR · 620,000 SAR · 480,000 SAR   ← sale listings
+```
+
+The bound is itself the intent signal. A ceiling above the entire rent
+distribution cannot be discriminating between rentals, so it can only have been
+meant for sale prices; a ceiling below the sale distribution means the opposite.
+The two populations barely overlap, which is what makes this readable at all:
+
+| | p05 | p50 | p95 |
+|---|---:|---:|---:|
+| sale | $93,310 | $253,270 | $1,333,000 |
+| rent | $800 | $13,330 | $103,974 |
+
+So `resolve_price_intent` infers `sale` above the rent p95 and `rent` below the
+sale p05, and leaves anything in the overlap alone rather than guessing. Both
+thresholds are **read from the corpus at runtime**, not hard-coded, so they stay
+honest when the data is rescraped. An explicit `listing_type` — from the user or
+from the model — always wins.
+
 ### Degradation ladder
 
 Free-tier models rate-limit constantly and get retired without notice. The pipeline
@@ -316,7 +348,7 @@ apartment 1,177 · villa 692 · floor 430 · land 299 · building 183 · rest 79
 ## Testing
 
 ```bash
-make test     # 74 unit tests
+make test     # 79 unit tests
 make lint     # ruff, clean
 make eval     # 22 golden cases end-to-end
 ```
@@ -338,11 +370,11 @@ Current results:
 
 | Suite | Score |
 |---|---|
-| `pytest` | **74 / 74** |
+| `pytest` | **79 / 79** |
 | `eval --retrieval` (no LLM required) | **22 / 22** |
 | `eval` full pipeline | 18/22 when the free-tier quota is intact; the 4 gaps are cases whose assertions need generated prose, which search mode does not produce |
 
-The eval earned its place: it caught two real defects rather than just
+The eval earned its place: it caught three real defects rather than just
 confirming things worked.
 
 - **A brand name was unreachable.** "Tell me about the W Residences development"
@@ -355,6 +387,13 @@ confirming things worked.
   return HTTP 403 to ordinary API calls ("only available on agentic harnesses").
   They are now permanently retired from the chain on 401/403 rather than retried
   on every request.
+- **A price ceiling was returning rentals.** The headline query — "3-bedroom
+  apartments in Jeddah under 2 million SAR" — put 38,000 SAR/year *rentals* at
+  the top. No rent/sale word appears in it, so `listing_type` stayed unset and
+  the filter admitted both; since every rental sits far under any sale-sized
+  ceiling, rentals swept the ranking by being cheap. The eval case had asserted
+  price and bedrooms but never listing type, so it passed while being wrong.
+  See [Sale and rent are not the same quantity](#sale-and-rent-are-not-the-same-quantity).
 
 ## Deployment
 
@@ -449,7 +488,7 @@ app/         main.py (API) · agent.py (orchestration) · retrieval.py (hybrid s
              index.py (build-time index) · security.py · config.py
 web/         React + Vite chat UI
 eval/        golden.yaml + run.py
-tests/       74 unit tests
+tests/       79 unit tests
 ```
 
 Data flows one way: `scraper/` writes `data/corpus.jsonl.gz`, `app/index.py` turns

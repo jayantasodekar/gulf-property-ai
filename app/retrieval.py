@@ -16,7 +16,7 @@ import logging
 import re
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -157,6 +157,7 @@ class Retriever:
             self.matrix = np.zeros((0, 384), dtype=np.float32)
 
         self._embedder = None
+        self._intent_bounds: tuple[float, float] | None = None
         self._embed_model = self.meta.get("embedding_model", "")
         from .paths import EMBEDDING_MODEL as CONFIGURED
 
@@ -233,12 +234,79 @@ class Retriever:
         top = np.argsort(-sims)[:limit]
         return [self.ids[idx[t]] for t in top]
 
+    # --- sale/rent disambiguation ----------------------------------------
+    def _price_intent_bounds(self) -> tuple[float, float]:
+        """(rent_ceiling, sale_floor) in USD, derived from the corpus itself.
+
+        Rent and sale prices are not the same quantity - one is an annual
+        payment, the other a purchase - so a single price bound applied across
+        both is meaningless. Measured on this corpus the two populations barely
+        overlap (sale p05 ~$93k, rent p95 ~$104k), which is what makes the
+        bound itself a usable intent signal. Read from the data rather than
+        hard-coded so it stays honest when the corpus is rebuilt.
+        """
+        if self._intent_bounds is None:
+            with self._lock:
+                row = self.conn.execute(
+                    """
+                    SELECT
+                      (SELECT price_usd FROM properties
+                        WHERE listing_type='rent' AND price_usd IS NOT NULL
+                        ORDER BY price_usd
+                        LIMIT 1 OFFSET (SELECT COUNT(*)*95/100 FROM properties
+                          WHERE listing_type='rent' AND price_usd IS NOT NULL)) AS rent_ceiling,
+                      (SELECT price_usd FROM properties
+                        WHERE listing_type='sale' AND price_usd IS NOT NULL
+                        ORDER BY price_usd
+                        LIMIT 1 OFFSET (SELECT COUNT(*)*5/100 FROM properties
+                          WHERE listing_type='sale' AND price_usd IS NOT NULL)) AS sale_floor
+                    """
+                ).fetchone()
+            self._intent_bounds = (
+                float(row["rent_ceiling"] or 0.0),
+                float(row["sale_floor"] or 0.0),
+            )
+        return self._intent_bounds
+
+    def resolve_price_intent(self, filters: Filters) -> Filters:
+        """Infer listing_type from a price bound when the caller left it unset.
+
+        "Apartments in Jeddah under 2M SAR" carries no rent/sale word, so the
+        planner leaves listing_type null and the SQL filter admits both. Every
+        rental then passes - an annual rent is an order of magnitude below a
+        sale price - and cheap rentals monopolise the results for a question
+        that plainly meant purchase. market_stats already refuses to mix the
+        two (mixes_sale_and_rent); search has to be just as careful.
+
+        A ceiling above the whole rent distribution cannot discriminate between
+        rentals, so it can only have been meant for sale prices - and vice
+        versa. Bounds inside the overlap stay ambiguous and are left alone.
+        """
+        if filters.listing_type or filters.max_price_usd is None:
+            return filters
+        rent_ceiling, sale_floor = self._price_intent_bounds()
+        if not rent_ceiling or not sale_floor:
+            return filters
+        bound = filters.max_price_usd
+        if bound >= rent_ceiling:
+            inferred = "sale"
+        elif bound <= sale_floor:
+            inferred = "rent"
+        else:
+            return filters
+        log.info(
+            "price bound %.0f USD with no listing_type -> assuming %r "
+            "(rent ceiling %.0f, sale floor %.0f)",
+            bound, inferred, rent_ceiling, sale_floor,
+        )
+        return replace(filters, listing_type=inferred)
+
     # --- public API -------------------------------------------------------
     def search(
         self, query: str = "", filters: Filters | None = None, k: int = 8
     ) -> list[dict]:
         """Hybrid search. Returns full property dicts, best first."""
-        filters = filters or Filters()
+        filters = self.resolve_price_intent(filters or Filters())
         allowed_list = self.allowed_ids(filters)
         allowed = set(allowed_list) if allowed_list is not None else None
 
