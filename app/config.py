@@ -26,10 +26,19 @@ class Settings(BaseSettings):
     # thinkingmachines/inkling* entries advertise :free + tools but reject
     # ordinary API calls with 403 ("only available on agentic harnesses"),
     # so they are excluded rather than wasting a slot on every request.
+    # Order is deliberate: models observed working on this account come first,
+    # then larger models as deeper fallbacks, then a small model as the floor.
+    # The large entries are NOT yet verified by a real tool-calling request, so
+    # they sit behind the proven ones rather than in front - an unverified
+    # model at the head of the chain is how a working demo silently gets worse.
+    # `make verify-models` probes them for real; promote whatever it confirms.
     model_candidates: str = (
         "dots-studio/dots-3-note-preview:free,"
         "nvidia/nemotron-3.5-lightning:free,"
         "poolside/laguna-s-2.1:free,"
+        "nvidia/nemotron-3-super-120b-a12b:free,"
+        "z-ai/glm-5.2:free,"
+        "minimax/minimax-m3:free,"
         "liquid/lfm-2.5-2.6b:free"
     )
     request_timeout: float = 75.0

@@ -1,4 +1,4 @@
-.PHONY: install scrape index run test lint eval docker docker-run clean
+.PHONY: install scrape index run test lint eval verify-models verify-models-all docker docker-run clean
 
 PY := ./.venv/Scripts/python.exe
 
@@ -33,6 +33,14 @@ lint:
 
 eval:
 	$(PY) -m eval.run
+
+# Probe the model chain with a REAL tool-calling request. The catalogue is
+# not evidence: inkling advertised :free + tools and returned 403.
+verify-models:
+	$(PY) -m app.verify_models
+
+verify-models-all:
+	$(PY) -m app.verify_models --all
 
 docker:
 	docker build -t gulf-property-ai:latest .

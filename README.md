@@ -279,6 +279,26 @@ Model selection is also dynamic: at startup the app calls
 with its configured preference list, so a retired model becomes a fallback rather
 than an outage.
 
+**The catalogue is not evidence, though.** It advertised `inkling:free` as free
+*and* tool-capable; the model returned 403 to ordinary API calls. A model can
+also return 200 and simply answer in prose instead of calling the tool, which no
+metadata field reports either. So `make verify-models` sends each candidate a
+real tool-calling request and classifies what actually comes back:
+
+```
++ nvidia/nemotron-3.5-lightning:free   OK               called search_properties({"city":"Riyadh",...})
+  thinkingmachines/inkling:free        HTTP 403         only available on agentic harnesses
+  some-model:free                      NO TOOL CALL     replied with prose: 'I can help you find...'
+  another-model:free                   QUOTA EXHAUSTED  account-wide daily cap; retry after reset
+```
+
+It separates *the model is unusable* from *the account is out of quota today* —
+the second says nothing about the model, so an all-quota run reports
+`INCONCLUSIVE` and exits 0 rather than failing a gate for being run on the wrong
+day. `--all` probes every free tool-capable model in the catalogue and prints a
+suggested chain order, so the preference list is set from measurement rather
+than from what the catalogue claims.
+
 ### Adaptive crawl rate (AIMD)
 
 A fixed request rate is a guess. The server knows its own limit and announces it
@@ -348,9 +368,10 @@ apartment 1,177 · villa 692 · floor 430 · land 299 · building 183 · rest 79
 ## Testing
 
 ```bash
-make test     # 79 unit tests
-make lint     # ruff, clean
-make eval     # 22 golden cases end-to-end
+make test           # 79 unit tests
+make lint           # ruff, clean
+make eval           # 22 golden cases end-to-end
+make verify-models  # probe the model chain with a real tool call
 ```
 
 Unit tests are hermetic — the retrieval suite injects vectors directly and stubs
