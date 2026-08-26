@@ -1,15 +1,3 @@
----
-title: Gulf Property AI
-emoji: 🏙️
-colorFrom: green
-colorTo: blue
-sdk: docker
-app_port: 7860
-pinned: false
-license: mit
-short_description: AI chatbot grounded in scraped DarGlobal and Wasalt property data
----
-
 # Gulf Property AI
 
 An AI chatbot that answers questions about real-estate listings scraped from
@@ -348,20 +336,58 @@ targeting, Arabic queries, aggregate questions, and negative cases:
 
 ## Deployment
 
-Deployed on **Hugging Face Spaces** (Docker SDK): free, no credit card, no idle
-spin-down cold start, and first-class secret management — so a reviewer clicking
-the link gets a warm app.
+Deployed on **Render** (free tier, Docker runtime) via the committed
+[`render.yaml`](render.yaml) blueprint. The free instance is capped at **512 MB
+RAM**, which drove one real design decision.
 
-```bash
-git remote add space https://huggingface.co/spaces/<user>/gulf-property-ai
-git push space main
+### Fitting a semantic search engine into 512 MB
+
+Measured resident memory, same image, only the embedding model changed:
+
+| Model | Idle | After model load | Fits 512 MB? |
+|---|---:|---:|:--:|
+| `paraphrase-multilingual-MiniLM-L12-v2` (384d) | 67 MB | **608 MB** | no |
+| `all-MiniLM-L6-v2` (384d) | 68 MB | **195 MB** | **yes** (38% of cap) |
+
+Verified by running the container under a hard `--memory=512m` cap: no OOM
+kills, no restarts, 195 MB steady state after repeated queries.
+
+The multilingual model would have been the better retriever, so the question was
+what its absence actually costs. The answer is: much less than expected, because
+**FTS5's `unicode61` tokenizer indexes Arabic script correctly**, so Arabic
+listings stay fully retrievable through BM25 — the lexical half of the hybrid.
+Verified against the live index:
+
+```
+"شقة للبيع في الرياض"  ->  شقة ب 3 غرف                          (Riyadh)
+"فيلا مع مسبح"          ->  فيلا 511 متر مربع شمالية على شارع 20م  (Riyadh)
 ```
 
-Then add `OPENROUTER_API_KEY` as a Space **secret** (not a variable — variables are
-exposed to the build log). The front-matter at the top of this file configures the
-Space; the container must bind `0.0.0.0:7860`.
+Only Arabic *semantic paraphrase* matching degrades. `EMBEDDING_MODEL` is a
+build arg, so a host with more memory restores the multilingual model with one
+flag and an index rebuild.
 
----
+### The mismatch trap this created
+
+Both models are 384-dimensional. Building the index with one and querying with
+the other therefore does **not** raise — the shapes line up and the vectors are
+simply from incompatible spaces, so results become quietly meaningless. Guarded
+two ways: query embedding is *strict* (it loads exactly the model recorded in
+the index metadata, or raises), and startup warns when configuration and index
+disagree.
+
+### Deploying
+
+```bash
+# Render reads render.yaml automatically (Blueprint).
+# Set OPENROUTER_API_KEY in the dashboard - it is marked sync:false so it is
+# never stored in the repo.
+git push origin main
+```
+
+Free-tier caveat: the instance **spins down after ~15 minutes idle**, so the
+first request after a quiet period takes ~50 s. `/healthz` is the cheapest way
+to warm it.
 
 ## Limitations
 
@@ -375,6 +401,12 @@ Space; the container must bind `0.0.0.0:7860`.
   shared across replicas; Redis is the obvious next step.
 - **Free models are weaker** at multi-step tool use than frontier models. The
   planner fallback exists largely to compensate.
+- **OpenRouter meters free models per account per day** (50/day without credits,
+  1,000/day with). Past that every `:free` model returns 429 at once, and the app
+  serves search mode. Two of the catalogue's free tool-capable models
+  (`thinkingmachines/inkling*`) additionally return 403 to ordinary API calls —
+  "only available on agentic harnesses" — so they are excluded from the chain.
+- **Render free spins down after ~15 minutes idle** (~50 s cold start).
 
 ### What v2 would add
 
