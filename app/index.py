@@ -16,6 +16,7 @@ import argparse
 import gzip
 import json
 import logging
+import os
 import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
@@ -150,10 +151,14 @@ def get_embedder(model_name: str | None = None):
         "BAAI/bge-small-en-v1.5",  # last resort: English-only
     ]
     available = {m["model"] for m in TextEmbedding.list_supported_models()}
+    # ONNX Runtime defaults to a single thread here, which makes a full corpus
+    # rebuild ~4x slower than it needs to be and risks tripping cloud build
+    # timeouts. Use every core the builder has.
+    threads = os.cpu_count() or 4
     for name in preferred:
         if name in available:
-            log.info("embedding model: %s", name)
-            return TextEmbedding(model_name=name), name
+            log.info("embedding model: %s (threads=%d)", name, threads)
+            return TextEmbedding(model_name=name, threads=threads), name
     raise RuntimeError(f"no usable embedding model; available={sorted(available)[:10]}")
 
 

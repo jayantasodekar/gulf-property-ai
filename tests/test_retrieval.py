@@ -202,7 +202,7 @@ def test_market_stats_are_exact(retriever: Retriever) -> None:
     assert s["with_price"] == 2
     assert s["price_usd"]["min"] == pytest.approx(453_220.0)
     assert s["price_usd"]["max"] == pytest.approx(1_066_400.0)
-    assert s["price_usd"]["avg"] == pytest.approx((453_220.0 + 1_066_400.0) / 2)
+    assert s["price_usd"]["mean"] == pytest.approx((453_220.0 + 1_066_400.0) / 2)
 
 
 def test_market_stats_handles_unpriced_rows(retriever: Retriever) -> None:
@@ -210,7 +210,53 @@ def test_market_stats_handles_unpriced_rows(retriever: Retriever) -> None:
     s = retriever.market_stats(Filters(source="darglobal"))
     assert s["matched"] == 1
     assert s["with_price"] == 0
-    assert s["price_usd"]["avg"] is None
+    assert s["price_usd"]["mean"] is None
+    assert s["price_usd"]["median"] is None
+
+
+def test_market_stats_flags_sale_rent_mixing(retriever: Retriever) -> None:
+    """Averaging a sale price with a rent price is meaningless; say so."""
+    mixed = retriever.market_stats(Filters(source="wasalt"))
+    assert mixed["mixes_sale_and_rent"] is True
+    assert mixed["listing_type_breakdown"] == {"rent": 1, "sale": 2}
+
+    clean = retriever.market_stats(Filters(source="wasalt", listing_type="sale"))
+    assert clean["mixes_sale_and_rent"] is False
+
+
+def test_market_stats_reports_percentiles(retriever: Retriever) -> None:
+    s = retriever.market_stats(Filters(source="wasalt", listing_type="sale"))
+    p = s["price_usd"]
+    assert p["median"] is not None
+    assert p["p25"] is not None and p["p75"] is not None
+    assert p["p25"] <= p["median"] <= p["p75"]
+
+
+def test_trimmed_mean_resists_a_typo_outlier() -> None:
+    """A single mis-keyed price must not drag the reported typical price.
+
+    Mirrors a real defect in the source data: Saudi land is often advertised
+    per square metre, and some listings carry outright typos.
+    """
+    from app.retrieval import Retriever as R
+
+    prices = [100_000.0] * 20 + [500_000_000.0]  # 20 normal + 1 typo
+    sorted_p = sorted(prices)
+    mean = sum(prices) / len(prices)
+
+    def pct(v, q):
+        i = min(len(v) - 1, max(0, int(round(q * (len(v) - 1)))))
+        return v[i]
+
+    median = pct(sorted_p, 0.5)
+    lo, hi = pct(sorted_p, 0.05), pct(sorted_p, 0.95)
+    core = [x for x in sorted_p if lo <= x <= hi]
+    trimmed = sum(core) / len(core)
+
+    assert mean > 20_000_000        # the naive mean is destroyed
+    assert median == 100_000        # the median is not
+    assert trimmed == 100_000       # nor is the trimmed mean
+    assert R is not None
 
 
 def test_corpus_stats(retriever: Retriever) -> None:

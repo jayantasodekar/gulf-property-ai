@@ -5,13 +5,13 @@
 # Stage 1 compiles the React SPA. Stage 2 is the runtime: it never sees Node,
 # never sees the scraper's browser-impersonation stack, and builds the SQLite +
 # vector index at BUILD time so the container starts serving immediately rather
-# than embedding 3,000 documents on first request.
+# than embedding ~2,800 documents on first request.
 
 # ---------- stage 1: build the UI ----------
 FROM node:22-alpine AS web
 WORKDIR /web
 COPY web/package.json web/package-lock.json* ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund 2>/dev/null || npm install --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
@@ -35,16 +35,23 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ ./app/
+# --- expensive layer, deliberately isolated ------------------------------
+# Only the three files the index build actually needs are copied here, so
+# editing agent.py or retrieval.py does NOT invalidate the ~10 minute embedding
+# step below. The rest of app/ is copied afterwards.
+COPY app/__init__.py app/config.py app/index.py ./app/
 COPY data/corpus.jsonl.gz ./data/corpus.jsonl.gz
+
+# Builds the SQLite + FTS5 + vector index AND warms the embedding-model cache
+# into the image, so cold start is fast and a missing/corrupt corpus fails the
+# build loudly rather than the first request.
+RUN python -m app.index --build && python -m app.index --verify
+
+# --- cheap layers -------------------------------------------------------
+COPY app/ ./app/
 COPY --from=web /web/dist ./web/dist
 
-# Build the index and warm the embedding-model cache into the image. Doing this
-# here (not at startup) keeps cold start fast and makes the build fail loudly if
-# the corpus is missing or malformed.
-RUN python -m app.index --build \
-    && python -m app.index --verify \
-    && chown -R appuser:appuser /app/data /opt/models
+RUN chown -R appuser:appuser /app/data /opt/models
 
 USER appuser
 

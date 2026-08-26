@@ -67,7 +67,7 @@ make test lint eval
 | | DarGlobal | Wasalt |
 |---|---|---|
 | What it is | International luxury **developer** (Dubai, Jeddah, Muscat, Marbella, Doha) | Saudi property **marketplace** |
-| Records | 31 developments | ~3,000 listings sampled from 60,000 |
+| Records | **30** developments | **2,778** listings sampled from 60,000 |
 | Prices | **None published** — register-interest only | SAR prices on nearly every listing |
 | Language | English | **Mostly Arabic**, even on `/en` URLs |
 | Structure | schema.org `RealEstateListing` + `ApartmentComplex` | Next.js `__NEXT_DATA__` |
@@ -158,9 +158,86 @@ Aggregates (`average`, `median`, `count`) are computed **in SQL**, never by the
 model. Asking an LLM to average forty prices from context is a reliable way to get
 a wrong number stated confidently.
 
-At ~3,000 documents the vectors are ~4.6 MB and a brute-force NumPy dot product
-takes under 10 ms. **A vector database here would be cost without benefit**, so
-there isn't one.
+### Why SQLite, and where it stops being the right answer
+
+The corpus is **read-only at runtime** — `scraper/` produces it, `app/index.py`
+bakes it into `corpus.sqlite` at image-build time, and the app never writes a row.
+That removes SQLite's one famous weakness (concurrent writers) and leaves its
+strengths: no network hop, no connection pool, no separate service to deploy or
+secure. It was also the only option covering **both halves of hybrid retrieval in
+one file** — FTS5 ships BM25 built in, where `pgvector` would still need `tsvector`
+tuning and a managed vector DB gives no lexical search at all.
+
+Measured on the real corpus (2,808 records, 384-dim vectors):
+
+| Component | p50 | Share |
+|---|---:|---|
+| Dense cosine over **all 2,808 rows** | **0.20 ms** | 0.2% |
+| BM25 via FTS5 | 1.24 ms | 1.4% |
+| SQL filter (city + price + beds) | 9.11 ms | 10% |
+| **Embedding the query (model inference)** | **69.6 ms** | **77%** |
+| **Full hybrid search end-to-end** | **90 ms** | 100% |
+
+Vector matrix 4.31 MB · SQLite file 19.9 MB · cold start 235 ms.
+
+**The database is not the bottleneck — the embedding model is.** Brute-force cosine
+over the entire corpus is 350x faster than the query embedding that has to happen
+wherever the vectors live. Introducing Pinecone or Qdrant would optimise the 0.20 ms
+component while adding a 20-100 ms network round-trip, making the system *slower*
+for a service, a credential and a failure mode.
+
+The matmul scales linearly: ~7 ms at 100k rows, ~70 ms at 1M. So the crossover where
+an ANN index (HNSW/IVF) actually earns its complexity is **past ~500k vectors** —
+roughly 200x this corpus. Below that, a vector database is cost without benefit.
+
+To be precise about what SQLite is doing here: the `vectors` table is durable
+storage, not a vector *index*. Startup loads all 4.31 MB into one L2-normalised
+NumPy matrix and search is a single `matrix @ query` BLAS call. SQLite persists;
+NumPy searches. That is the right split at this size, but it is not "SQLite as a
+vector database".
+
+Known limits of this choice, stated plainly: horizontal replicas each hold their own
+copy (fine while immutable), rebuilding the corpus requires a redeploy (it is a
+snapshot by design), and the 9 ms SQL filter is a `LIKE '%city%'` that cannot use an
+index — worth a normalised column only once it is more than 10% of the request.
+
+### The source data contains real errors, and the bot must not launder them
+
+Aggregates looked fine until I checked the distribution:
+
+```
+Wasalt sale listings:  min $307   median $253,270   mean $886,574   max $362,373,384
+```
+
+A mean **3.5x the median** is not a rounding issue. Inspecting the tails showed the
+cause is in the source marketplace, not the scraper:
+
+- `Land 660 SQM ... 1,150 SAR` — Saudi land is routinely advertised **per square
+  metre**, not as a total.
+- `Land 113 SQM ... 1,359,240,000 SAR` — a plain data-entry typo.
+
+A chatbot that answers *"the average price in Riyadh is $886,574"* is confidently
+wrong, and the failure is invisible because the number looks plausible. Three fixes:
+
+1. **`market_stats` reports median, p25 and p75**, plus a 5th–95th percentile
+   trimmed mean and the count of rows it excluded. Nothing is deleted from the
+   corpus — the outliers are still retrievable, they just stop dominating the
+   summary statistic.
+2. **`distribution_is_skewed`** is set when the mean exceeds 1.5x the median, and
+   the system prompt instructs the model to quote the median and give the p25–p75
+   range instead.
+3. **`mixes_sale_and_rent`** guards a subtler trap. "Average apartment price in
+   Riyadh" with no `listing_type` filter silently averages annual rents against
+   sale prices:
+
+| Query | Median |
+|---|---|
+| Riyadh apartments, no filter | **$23,994** ← meaningless |
+| Riyadh apartments, `sale` | $226,610 (p25 $186,620 – p75 $266,600) |
+| Riyadh apartments, `rent` | $11,197 / year |
+
+   The mixed aggregate is now flagged with a per-`listing_type` breakdown, and the
+   model is told to ask which the user meant rather than answer it.
 
 ### Degradation ladder
 
@@ -290,7 +367,7 @@ Space; the container must bind `0.0.0.0:7860`.
 
 - **Snapshot, not a live feed.** Prices and availability reflect the scrape date.
   Production would need a scheduled re-scrape with change detection.
-- **~3,000 of 60,000** Wasalt listings, stratified. Enough for realistic questions;
+- **2,778 of 60,000** Wasalt listings, stratified. Enough for realistic questions;
   not a complete market picture.
 - **FX rates are static and dated** (`FX_TO_USD`, 2026-08-01). Cross-currency
   comparison is labelled as approximate rather than silently using stale live rates.

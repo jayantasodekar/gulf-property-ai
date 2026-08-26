@@ -7,7 +7,7 @@ data/.cache/
 data/corpus.sqlite
 data/corpus.sqlite-shm
 data/corpus.sqlite-wal
-data/scrape.log
+data/*.log
 data/failures.jsonl
 web/node_modules/
 web/dist/

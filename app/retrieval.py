@@ -292,31 +292,87 @@ class Retriever:
                     params,
                 ).fetchall()
             ]
+            deal_mix = dict(
+                self.conn.execute(
+                    f"SELECT listing_type, COUNT(*) FROM properties WHERE {where} "  # noqa: S608
+                    "AND price IS NOT NULL GROUP BY listing_type",
+                    params,
+                ).fetchall()
+            )
             cities = self.conn.execute(
                 f"SELECT city, COUNT(*) c FROM properties WHERE {where} "  # noqa: S608
                 "AND city IS NOT NULL GROUP BY city ORDER BY c DESC LIMIT 8",
                 params,
             ).fetchall()
 
-        median = None
-        if prices:
-            mid = len(prices) // 2
-            median = prices[mid] if len(prices) % 2 else (prices[mid - 1] + prices[mid]) / 2
-
         rnd = lambda v: round(v, 2) if isinstance(v, (int, float)) else None  # noqa: E731
+
+        def pct(sorted_vals: list[float], q: float) -> float | None:
+            """Nearest-rank percentile."""
+            if not sorted_vals:
+                return None
+            i = min(len(sorted_vals) - 1, max(0, int(round(q * (len(sorted_vals) - 1)))))
+            return sorted_vals[i]
+
+        median = pct(prices, 0.5)
+        p25, p75 = pct(prices, 0.25), pct(prices, 0.75)
+
+        # The source marketplace contains genuine listing errors: Saudi land is
+        # frequently advertised per-square-metre rather than as a total, and a
+        # handful of prices are plain typos. Left alone these drag the mean to
+        # ~3.5x the median, so a plain "average" would be actively misleading.
+        # We therefore also report a 5th-95th percentile trimmed mean and say
+        # how many rows were excluded, rather than silently deleting data or
+        # silently reporting a number we know is skewed.
+        trimmed_mean = None
+        excluded = 0
+        if len(prices) >= 8:
+            lo, hi = pct(prices, 0.05), pct(prices, 0.95)
+            core = [v for v in prices if lo <= v <= hi]
+            excluded = len(prices) - len(core)
+            if core:
+                trimmed_mean = sum(core) / len(core)
+        elif prices:
+            trimmed_mean = sum(prices) / len(prices)
+
+        skewed = bool(
+            median and trimmed_mean and row["avg_usd"]
+            and row["avg_usd"] > 1.5 * median
+        )
+
+        # A "sale" price and a "rent" price are different units. Averaging them
+        # together produces a number that looks authoritative and means nothing,
+        # so we detect it and say so rather than quietly returning it.
+        priced_deals = {k: v for k, v in deal_mix.items() if v}
+        mixes = len([k for k in priced_deals if k in ("sale", "rent")]) > 1
+
         return {
             "matched": row["n"],
             "with_price": row["n_priced"],
             "filters": filters.active(),
             "price_usd": {
                 "min": rnd(row["min_usd"]), "max": rnd(row["max_usd"]),
-                "avg": rnd(row["avg_usd"]), "median": rnd(median),
+                "mean": rnd(row["avg_usd"]),
+                "median": rnd(median),
+                "trimmed_mean_5_95": rnd(trimmed_mean),
+                "p25": rnd(p25), "p75": rnd(p75),
+                "outliers_excluded_from_trimmed_mean": excluded,
             },
             "avg_price_per_sqm_local": rnd(row["avg_ppsqm"]),
             "avg_area_sqm": rnd(row["avg_area"]),
             "avg_bedrooms": rnd(row["avg_beds"]),
             "top_cities": [{"city": c[0], "count": c[1]} for c in cities],
-            "note": "Prices converted to USD with a static FX table; see data provenance.",
+            "distribution_is_skewed": skewed,
+            "mixes_sale_and_rent": mixes,
+            "listing_type_breakdown": priced_deals,
+            "note": (
+                "Report MEDIAN as the typical price. If mixes_sale_and_rent is "
+                "true this aggregate spans both sale and rental prices and is not "
+                "a meaningful average. The source marketplace "
+                "contains listing errors (land often priced per square metre, "
+                "occasional typos) which inflate the mean. Prices converted to "
+                "USD with a static FX table dated 2026-08-01."
+            ),
         }
 
     def corpus_stats(self) -> dict:
