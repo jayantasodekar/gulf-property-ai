@@ -26,19 +26,26 @@ class Settings(BaseSettings):
     # thinkingmachines/inkling* entries advertise :free + tools but reject
     # ordinary API calls with 403 ("only available on agentic harnesses"),
     # so they are excluded rather than wasting a slot on every request.
-    # Order is deliberate: models observed working on this account come first,
-    # then larger models as deeper fallbacks, then a small model as the floor.
-    # The large entries are NOT yet verified by a real tool-calling request, so
-    # they sit behind the proven ones rather than in front - an unverified
-    # model at the head of the chain is how a working demo silently gets worse.
-    # `make verify-models` probes them for real; promote whatever it confirms.
+    # Order set from measurement, not from the catalogue. `make verify-models`
+    # sends each candidate a real tool-calling request; these five returned a
+    # well-formed tool call, timed on 2026-08-27:
+    #
+    #   nemotron-3-super-120b   3.85s   strongest verified -> leads
+    #   dots-3-note-preview     2.95s
+    #   nemotron-3.5-lightning  3.03s
+    #   minimax-m3              6.68s   capable but slow -> deeper fallback
+    #   lfm-2.5-2.6b            1.15s   fastest, weakest -> floor
+    #
+    # laguna-s-2.1 and glm-5.2 both returned provider errors on the day, so
+    # they sit near the back: still worth trying if the leaders are down, but
+    # not on the hot path. Re-run verify-models to re-derive this order.
     model_candidates: str = (
+        "nvidia/nemotron-3-super-120b-a12b:free,"
         "dots-studio/dots-3-note-preview:free,"
         "nvidia/nemotron-3.5-lightning:free,"
-        "poolside/laguna-s-2.1:free,"
-        "nvidia/nemotron-3-super-120b-a12b:free,"
-        "z-ai/glm-5.2:free,"
         "minimax/minimax-m3:free,"
+        "poolside/laguna-s-2.1:free,"
+        "z-ai/glm-5.2:free,"
         "liquid/lfm-2.5-2.6b:free"
     )
     request_timeout: float = 75.0
