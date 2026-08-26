@@ -17,6 +17,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# config.py loads .env through pydantic-settings, but this module is imported
+# by the index builder without config.py (that is the point of the split), so
+# it loads .env itself. Without this, a local .env would silently fail to
+# override EMBEDDING_MODEL here while appearing to work everywhere else.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(ROOT / ".env", override=False)
+except ImportError:  # python-dotenv is optional at build time
+    pass
+
 DB_PATH = Path(os.getenv("DB_PATH", ROOT / "data" / "corpus.sqlite"))
 CORPUS_PATH = Path(os.getenv("CORPUS_PATH", ROOT / "data" / "corpus.jsonl.gz"))
 
