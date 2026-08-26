@@ -33,7 +33,9 @@ class Settings(BaseSettings):
         "liquid/lfm-2.5-2.6b:free"
     )
     request_timeout: float = 75.0
-    max_tool_rounds: int = 3
+    # Each round is one API call. Two is enough: one to choose tools, plus a
+    # retry if the first round returned nothing useful.
+    max_tool_rounds: int = 2
 
     # --- app --------------------------------------------------------------
     app_name: str = "Gulf Property AI"

@@ -21,7 +21,7 @@ from typing import Any
 from .config import settings
 from .llm import NoModelAvailable, client
 from .planner import heuristic_plan, llm_plan
-from .prompts import SEARCH_MODE_NOTICE, SYSTEM_PROMPT, wrap_untrusted
+from .prompts import QUOTA_NOTICE, SEARCH_MODE_NOTICE, SYSTEM_PROMPT, wrap_untrusted
 from .retrieval import Filters, get_retriever
 
 log = logging.getLogger(__name__)
@@ -157,6 +157,15 @@ async def _retrieve_via_tools(question: str, history: list[dict]) -> tuple[list[
                     "content": wrap_untrusted(payload, label=fn),
                 }
             )
+
+        # Once the tools have produced grounding, stop. Looping again would
+        # spend an entire API call just to hear the model say it needs nothing
+        # further, and that reply is discarded anyway -- the answer is generated
+        # by the streaming call that follows. On OpenRouter's free tier, where
+        # the quota is a few dozen requests per day, that call is a third of the
+        # per-turn cost for no benefit.
+        if citations:
+            break
     return citations, notes
 
 
@@ -197,12 +206,15 @@ def _dedupe_citations(rows: list[dict], limit: int = 8) -> list[dict]:
 
 
 def _search_mode_text(rows: list[dict]) -> str:
+    # Say *why* the assistant is quiet. "Something went wrong" invites a retry
+    # that cannot succeed; naming the daily free-tier cap sets the expectation.
+    notice = QUOTA_NOTICE if client.account_quota_exhausted else SEARCH_MODE_NOTICE
     if not rows:
         return (
-            f"{SEARCH_MODE_NOTICE}\n\nI could not find matching listings in the "
+            f"{notice}\n\nI could not find matching listings in the "
             "indexed corpus. Try a broader query, e.g. a city name on its own."
         )
-    lines = [SEARCH_MODE_NOTICE, "", f"Top {len(rows)} matches:", ""]
+    lines = [notice, "", f"Top {len(rows)} matches:", ""]
     for row in rows:
         price = (
             f"{row['price']:,.0f} {row.get('currency') or ''}".strip()

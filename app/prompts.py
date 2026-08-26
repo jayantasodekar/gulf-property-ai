@@ -60,6 +60,13 @@ SEARCH_MODE_NOTICE = (
     "results from the indexed corpus rather than a written answer."
 )
 
+QUOTA_NOTICE = (
+    "This demo runs on OpenRouter's free tier, which allows a limited number of "
+    "model requests per day, and today's allowance is used up. Search is "
+    "unaffected - the results below come from the same indexed corpus the "
+    "assistant reads, ranked the same way. Written answers resume tomorrow."
+)
+
 
 def _compact(prop: dict) -> dict:
     """Trim a property to what the model actually needs, to save context."""

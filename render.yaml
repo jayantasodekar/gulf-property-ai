@@ -28,5 +28,9 @@ services:
         value: "20"
       - key: RATE_LIMIT_PER_DAY
         value: "200"
+      # OpenRouter free tier allows ~50 model requests/day account-wide and a
+      # chat turn costs 2, so roughly 25 AI-answered turns. The budget is set
+      # above that on purpose: past the quota the app serves search mode, which
+      # is still useful, so there is no reason to refuse the request outright.
       - key: GLOBAL_DAILY_BUDGET
-        value: "800"
+        value: "400"
