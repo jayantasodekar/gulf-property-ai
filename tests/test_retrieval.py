@@ -127,6 +127,20 @@ def test_clean_fts_query_empty() -> None:
     assert clean_fts_query("") == ""
 
 
+def test_clean_fts_query_keeps_single_char_tokens() -> None:
+    """Regression: dropping 1-char tokens deleted the "W" from "W Residences".
+
+    That turned the query into a match for every ...Residences listing in the
+    corpus and buried the development the user actually named.
+    """
+    assert '"W"' in clean_fts_query("the W Residences development")
+
+
+def test_single_char_brand_token_ranks_first(retriever: Retriever) -> None:
+    out = retriever.search("Tell me about the W Residences development", k=5)
+    assert out and out[0]["id"] == "darglobal-w-residences"
+
+
 # ------------------------------------------------------------------ #
 #  Structured filters -- the whole reason for the hybrid design
 # ------------------------------------------------------------------ #

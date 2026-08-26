@@ -1,0 +1,55 @@
+{
+  "deployId": "dep-da7i093bc2fs73cu0cv0",
+  "service": {
+    "autoDeploy": "yes",
+    "autoDeployTrigger": "commit",
+    "branch": "main",
+    "createdAt": "2026-08-26T17:19:31.599741Z",
+    "dashboardUrl": "https://dashboard.render.com/web/srv-da7i08jbc2fs73cu0c70",
+    "id": "srv-da7i08jbc2fs73cu0c70",
+    "name": "gulf-property-ai",
+    "notifyOnFail": "default",
+    "ownerId": "tea-da7hu5tg1s2s73fu7j8g",
+    "repo": "https://github.com/jayantasodekar/gulf-property-ai",
+    "rootDir": "",
+    "serviceDetails": {
+      "buildPlan": "starter",
+      "cache": {
+        "profile": "no-cache"
+      },
+      "env": "docker",
+      "envSpecificDetails": {
+        "dockerCommand": "",
+        "dockerContext": ".",
+        "dockerfilePath": "./Dockerfile"
+      },
+      "healthCheckPath": "/healthz",
+      "ipAllowList": [
+        {
+          "cidrBlock": "0.0.0.0/0",
+          "description": "everywhere"
+        }
+      ],
+      "maintenanceMode": {
+        "enabled": false,
+        "uri": ""
+      },
+      "numInstances": 1,
+      "openPorts": null,
+      "plan": "free",
+      "previews": {
+        "generation": "off"
+      },
+      "pullRequestPreviewsEnabled": "no",
+      "region": "oregon",
+      "runtime": "docker",
+      "sshAddress": "srv-da7i08jbc2fs73cu0c70@ssh.oregon.render.com",
+      "url": "https://gulf-property-ai.onrender.com"
+    },
+    "slug": "gulf-property-ai",
+    "suspended": "not_suspended",
+    "suspenders": [],
+    "type": "web_service",
+    "updatedAt": "2026-08-26T17:19:31.599741Z"
+  }
+}

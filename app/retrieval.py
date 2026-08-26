@@ -109,8 +109,16 @@ class Filters:
 
 
 def clean_fts_query(q: str) -> str:
-    """Turn free text into a safe FTS5 OR-query."""
-    tokens = [t for t in FTS_UNSAFE.sub(" ", q or "").split() if len(t) > 1]
+    """Turn free text into a safe FTS5 OR-query.
+
+    Single-character tokens are kept. Dropping them looks like sensible noise
+    reduction until a brand name depends on one: "W Residences" becomes
+    "Residences", which then matches every Trump/Marriott Residences listing
+    in the corpus and buries the one the user asked for. BM25 already handles
+    genuinely uninformative tokens through IDF, so filtering by length adds
+    nothing and costs precision.
+    """
+    tokens = [t for t in FTS_UNSAFE.sub(" ", q or "").split() if t]
     return " OR ".join(f'"{t}"' for t in tokens[:24])
 
 
