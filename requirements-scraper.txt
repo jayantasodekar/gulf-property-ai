@@ -1,0 +1,4 @@
+# --- offline scrape job only (not installed into the runtime image) ---
+-r requirements.txt
+curl_cffi==0.7.4
+selectolax==0.3.27

@@ -1,0 +1,23 @@
+[project]
+name = "gulf-property-ai"
+version = "1.0.0"
+description = "AI chatbot grounded in scraped DarGlobal and Wasalt property data"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["ignore::DeprecationWarning"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "web", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "S"]
+ignore = ["E501", "B008", "S101", "S104", "S311", "UP038"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "E402"]

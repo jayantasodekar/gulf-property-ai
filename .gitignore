@@ -1,0 +1,16 @@
+.env
+.env.local
+.venv/
+__pycache__/
+*.pyc
+data/.cache/
+data/corpus.sqlite
+data/corpus.sqlite-shm
+data/corpus.sqlite-wal
+data/scrape.log
+data/failures.jsonl
+web/node_modules/
+web/dist/
+.pytest_cache/
+.ruff_cache/
+.DS_Store

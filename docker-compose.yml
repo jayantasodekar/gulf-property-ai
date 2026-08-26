@@ -1,0 +1,29 @@
+services:
+  app:
+    build: .
+    image: gulf-property-ai:latest
+    ports:
+      - "7860:7860"
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:7860}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:7860/healthz',timeout=8)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 25s
+    restart: unless-stopped
+
+  # One-shot scrape job. Excluded from `docker compose up` by the profile, so
+  # normal runs never re-hit the target sites.
+  #   docker compose --profile scrape run --rm scraper
+  scraper:
+    profiles: ["scrape"]
+    build:
+      context: .
+      dockerfile: scraper/Dockerfile
+    volumes:
+      - ./data:/app/data
+    command: ["python", "-m", "scraper.run", "--source", "both", "--limit", "3000"]
