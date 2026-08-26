@@ -9,6 +9,7 @@ data/corpus.sqlite-shm
 data/corpus.sqlite-wal
 data/*.log
 data/failures.jsonl
+data/eval-results.json
 web/node_modules/
 web/dist/
 .pytest_cache/

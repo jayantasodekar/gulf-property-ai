@@ -35,7 +35,10 @@ jobs:
 
       - name: Fail if a secret was committed
         run: |
-          if git grep -nE 'sk-or-[a-zA-Z0-9_-]{16,}' -- . ':!*.yml' ':!*.md'; then
+          # Real OpenRouter keys are 64 hex chars after the sk-or-v1- prefix.
+          # tests/ is excluded because it deliberately contains short fake keys
+          # to exercise the redaction filter.
+          if git grep -nE 'sk-or-v1-[a-f0-9]{48,}' -- . ':!tests/*' ':!*.md'; then
             echo "::error::An OpenRouter key appears to be committed."
             exit 1
           fi
