@@ -173,6 +173,22 @@ body {
 .bubble p:last-child { margin-bottom: 0; }
 .bubble ul { margin: 0 0 9px; padding-inline-start: 20px; }
 .bubble ul:last-child { margin-bottom: 0; }
+
+/* The model reaches for a table whenever it lists several priced listings
+   side by side. Tables are the one block that can exceed the bubble width,
+   so the wrapper scrolls on its own rather than letting the page scroll. */
+.bubble .table-wrap { overflow-x: auto; margin: 0 0 9px; }
+.bubble .table-wrap:last-child { margin-bottom: 0; }
+.bubble table { border-collapse: collapse; font-size: 0.92em; min-width: 100%; }
+.bubble th, .bubble td {
+  text-align: start;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.bubble th { font-weight: 600; opacity: 0.75; }
+.bubble tbody tr:last-child td { border-bottom: 0; }
+.bubble a { color: inherit; text-underline-offset: 2px; }
 .bubble li { margin-bottom: 4px; }
 
 .dots { display: inline-flex; gap: 4px; padding: 3px 0; }

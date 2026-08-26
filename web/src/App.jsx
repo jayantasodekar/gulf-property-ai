@@ -50,36 +50,93 @@ function PropertyCard({ p }) {
   )
 }
 
-/** Minimal markdown: **bold**, bullets, paragraphs. Text is escaped by React. */
+/** Inline markdown: **bold** and [label](url). Text is escaped by React.
+ *
+ * Only http(s) links become anchors - a `javascript:` or `data:` href reaching
+ * this from model output would be an XSS vector, and the model is repeating
+ * scraped text, which is untrusted by definition. */
+function inline(s, key) {
+  const parts = s.split(/(\*\*[^*]+\*\*|\[[^\]]+\]\([^)\s]+\))/g)
+  return parts.map((part, pi) => {
+    const k = `${key}-${pi}`
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={k}>{part.slice(2, -2)}</strong>
+    }
+    const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(part)
+    if (link && /^https?:\/\//i.test(link[2])) {
+      return (
+        <a key={k} href={link[2]} target="_blank" rel="noopener noreferrer">
+          {link[1]}
+        </a>
+      )
+    }
+    if (link) return <span key={k}>{link[1]}</span>
+    return <span key={k}>{part}</span>
+  })
+}
+
+const isTableRow = (l) => /^\s*\|.*\|\s*$/.test(l)
+const isTableRule = (l) => /^\s*\|[\s|:-]+\|\s*$/.test(l)
+const cells = (l) =>
+  l
+    .trim()
+    .replace(/^\||\|$/g, '')
+    .split('|')
+    .map((c) => c.trim())
+
+/** Minimal markdown: **bold**, links, bullets, tables, paragraphs.
+ *
+ * Tables matter because the model reaches for one whenever it is listing
+ * several priced listings side by side. Without this branch every row
+ * collapsed into a single run-on paragraph of literal pipe characters -
+ * the answer was correct and looked broken. */
 function Rich({ text }) {
   const blocks = text.split(/\n{2,}/)
   return (
     <>
       {blocks.map((block, bi) => {
-        const lines = block.split('\n')
-        const isList = lines.every((l) => /^\s*[-*]\s+/.test(l) || !l.trim())
-        const render = (s, i) => {
-          const parts = s.split(/(\*\*[^*]+\*\*)/g)
-          return parts.map((part, pi) =>
-            part.startsWith('**') && part.endsWith('**') ? (
-              <strong key={`${i}-${pi}`}>{part.slice(2, -2)}</strong>
-            ) : (
-              <span key={`${i}-${pi}`}>{part}</span>
-            ),
+        const lines = block.split('\n').filter((l) => l.trim())
+        if (!lines.length) return null
+
+        if (lines.length >= 2 && lines.filter(isTableRow).length >= 2) {
+          const rows = lines.filter(isTableRow)
+          const head = cells(rows[0])
+          const body = rows.slice(isTableRule(rows[1]) ? 2 : 1).map(cells)
+          return (
+            <div className="table-wrap" key={bi}>
+              <table>
+                <thead>
+                  <tr>
+                    {head.map((c, ci) => (
+                      <th key={ci}>{inline(c, `h${ci}`)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {body.map((r, ri) => (
+                    <tr key={ri}>
+                      {r.map((c, ci) => (
+                        <td key={ci}>{inline(c, `${ri}-${ci}`)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )
         }
-        if (isList && lines.some((l) => l.trim())) {
+
+        if (lines.every((l) => /^\s*[-*]\s+/.test(l))) {
           return (
             <ul key={bi}>
-              {lines
-                .filter((l) => l.trim())
-                .map((l, li) => (
-                  <li key={li}>{render(l.replace(/^\s*[-*]\s+/, ''), li)}</li>
-                ))}
+              {lines.map((l, li) => (
+                <li key={li}>{inline(l.replace(/^\s*[-*]\s+/, ''), li)}</li>
+              ))}
             </ul>
           )
         }
-        return <p key={bi}>{render(block, bi)}</p>
+
+        return <p key={bi}>{inline(block, bi)}</p>
       })}
     </>
   )

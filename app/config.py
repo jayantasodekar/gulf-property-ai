@@ -30,19 +30,26 @@ class Settings(BaseSettings):
     # sends each candidate a real tool-calling request; these five returned a
     # well-formed tool call, timed on 2026-08-27:
     #
-    #   nemotron-3-super-120b   3.85s   strongest verified -> leads
-    #   dots-3-note-preview     2.95s
+    #   dots-3-note-preview     2.95s   leads
     #   nemotron-3.5-lightning  3.03s
+    #   nemotron-3-super-120b   3.85s
     #   minimax-m3              6.68s   capable but slow -> deeper fallback
     #   lfm-2.5-2.6b            1.15s   fastest, weakest -> floor
     #
+    # The 120B model briefly led on the theory that a stronger model handles
+    # multi-step tool use better. It does - and it also answered the two
+    # honesty cases the eval exists to protect (`darglobal-price-honesty`,
+    # `mortgage-rates`) with a confident answer instead of declining, taking
+    # the suite from 20/22 to 18/22. A model more willing to be helpful is
+    # exactly wrong where the correct answer is "I don't know". It stays in
+    # the chain as a fallback, not on the hot path, and it is slower besides.
+    #
     # laguna-s-2.1 and glm-5.2 both returned provider errors on the day, so
-    # they sit near the back: still worth trying if the leaders are down, but
-    # not on the hot path. Re-run verify-models to re-derive this order.
+    # they sit near the back. Re-run verify-models to re-derive this order.
     model_candidates: str = (
-        "nvidia/nemotron-3-super-120b-a12b:free,"
         "dots-studio/dots-3-note-preview:free,"
         "nvidia/nemotron-3.5-lightning:free,"
+        "nvidia/nemotron-3-super-120b-a12b:free,"
         "minimax/minimax-m3:free,"
         "poolside/laguna-s-2.1:free,"
         "z-ai/glm-5.2:free,"
