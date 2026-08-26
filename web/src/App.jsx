@@ -155,6 +155,7 @@ export default function App() {
   const [showInfo, setShowInfo] = useState(false)
   const [health, setHealth] = useState({ state: 'checking' })
   const bottomRef = useRef(null)
+  const pinnedRef = useRef(true)
   const inputRef = useRef(null)
 
   // The free hosting tier suspends the instance after ~15 minutes idle, so a
@@ -193,9 +194,26 @@ export default function App() {
     }
   }, [])
 
+  // `messages` changes on every streamed token, so this effect runs dozens of
+  // times a second while an answer arrives. Two rules keep that usable:
+  //
+  //   1. Only follow the stream if the reader is already at the bottom. Once
+  //      they scroll up to read something, yanking them back down on the next
+  //      token makes the answer impossible to read.
+  //   2. Jump instantly rather than smoothly. A smooth scroll takes longer
+  //      than the gap between tokens, so each one interrupts the last and the
+  //      page judders instead of scrolling.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!pinnedRef.current) return
+    bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [messages, status])
+
+  // Re-pin as soon as the reader returns to the bottom themselves. The
+  // threshold absorbs sub-pixel rounding and the last line's margin.
+  function onChatScroll(e) {
+    const el = e.currentTarget
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
 
   async function send(text) {
     const question = (text ?? input).trim()
@@ -203,6 +221,9 @@ export default function App() {
     setInput('')
     setBusy(true)
     setStatus('Thinking…')
+    // Asking something is an explicit request to see the answer, so follow the
+    // new stream even if they had scrolled up to read the previous one.
+    pinnedRef.current = true
 
     const history = messages
       .filter((m) => m.role === 'user' || (m.role === 'assistant' && m.content))
@@ -370,7 +391,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="chat">
+      <main className="chat" onScroll={onChatScroll}>
         {messages.length === 0 && (
           <div className="welcome">
             <h2>Ask about properties across Saudi Arabia and the Gulf</h2>
