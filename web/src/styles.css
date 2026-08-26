@@ -309,3 +309,44 @@ body {
   .cards { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
   .welcome h2 { font-size: 18px; }
 }
+
+/* ---------- status banners ---------- */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--accent);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.banner-warn {
+  border-inline-start-color: var(--error);
+  color: var(--error);
+  background: var(--error-bg);
+}
+
+.spin {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation-duration: 3s; }
+  .dots i { animation: none; opacity: 0.6; }
+}

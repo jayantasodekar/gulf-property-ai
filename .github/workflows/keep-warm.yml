@@ -1,0 +1,54 @@
+name: Keep warm
+
+# Render's free instance suspends after ~15 minutes without traffic, and the
+# next visitor then waits ~50s for a cold start. A scheduled ping keeps it
+# resident. GitHub Actions is free and unmetered on public repositories, so
+# this costs nothing and needs no third-party uptime service.
+#
+# Note: GitHub throttles scheduled workflows under load and does not guarantee
+# exact timing, so this fires every 10 minutes to stay comfortably inside the
+# 15-minute idle window even when a run is delayed.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /healthz
+        env:
+          # Set this as a repository variable once the service is live:
+          #   Settings -> Secrets and variables -> Actions -> Variables
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          if [ -z "$APP_URL" ]; then
+            echo "APP_URL repository variable is not set; nothing to ping."
+            exit 0
+          fi
+
+          # A cold instance can take ~60s to wake, so allow a generous timeout
+          # and a few attempts before calling it a failure.
+          for attempt in 1 2 3 4; do
+            code=$(curl -s -o /tmp/body -w '%{http_code}' --max-time 90 "$APP_URL/healthz" || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "attempt $attempt: healthy"
+              cat /tmp/body
+              exit 0
+            fi
+            echo "attempt $attempt: HTTP $code, retrying..."
+            sleep 20
+          done
+
+          echo "::warning::$APP_URL/healthz did not return 200 after 4 attempts"
+          cat /tmp/body || true
+          # Do not fail the workflow: a red X every 10 minutes on a free-tier
+          # demo is noise, not signal. The warning is enough.
+          exit 0

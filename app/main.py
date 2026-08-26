@@ -37,6 +37,23 @@ for noisy in ("httpx", "httpcore", "curl_cffi"):
 log = logging.getLogger("app")
 
 
+async def _warm_embedder() -> None:
+    """Load the embedding model in the background, after startup.
+
+    Loading it eagerly would delay readiness, and on Render a slow first
+    health check looks like a failed deploy. Loading it lazily means the first
+    real visitor pays ~3s on top of an already-slow cold start. Doing it in the
+    background gets both: /healthz answers immediately, and the model is
+    resident before anyone asks a question.
+    """
+    try:
+        r = get_retriever()
+        await asyncio.to_thread(r._embed, "warm up the embedding model")
+        log.info("embedding model warm")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("embedder warm-up failed (will load on demand): %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Warm the index off the event loop; it does file + model I/O.
@@ -45,11 +62,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         log.error("retriever failed to load: %s", exc)
     await client.discover()
+    warm = asyncio.create_task(_warm_embedder())
     log.info(
         "%s ready on %s:%s (llm=%s)",
         settings.app_name, settings.host, settings.port, client.enabled,
     )
     yield
+    warm.cancel()
 
 
 app = FastAPI(
@@ -146,12 +165,19 @@ async def stats():
 async def healthz():
     """Liveness + readiness. Returns 503 if the corpus is missing."""
     try:
-        n = get_retriever().corpus_stats()["total"]
+        r = get_retriever()
+        n = r.corpus_stats()["total"]
     except Exception as exc:  # noqa: BLE001
         return JSONResponse({"status": "error", "detail": str(exc)[:200]}, status_code=503)
     if not n:
         return JSONResponse({"status": "empty corpus"}, status_code=503)
-    return {"status": "ok", "properties": n, "llm_enabled": client.enabled}
+    return {
+        "status": "ok",
+        "properties": n,
+        "llm_enabled": client.enabled,
+        "embedder_warm": r._embedder is not None,
+        "ai_quota_exhausted": client.account_quota_exhausted,
+    }
 
 
 # --- static SPA (mounted last so /api/* wins) ------------------------------

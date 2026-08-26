@@ -96,14 +96,44 @@ export default function App() {
   const [status, setStatus] = useState('')
   const [stats, setStats] = useState(null)
   const [showInfo, setShowInfo] = useState(false)
+  const [health, setHealth] = useState({ state: 'checking' })
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
 
+  // The free hosting tier suspends the instance after ~15 minutes idle, so a
+  // cold visitor waits ~50s for the container to start. Without this the page
+  // just looks broken. Poll /healthz on load and say what is happening.
   useEffect(() => {
-    fetch('/api/stats')
-      .then((r) => r.json())
-      .then(setStats)
-      .catch(() => {})
+    let cancelled = false
+    let attempt = 0
+
+    async function probe() {
+      while (!cancelled && attempt < 30) {
+        attempt += 1
+        try {
+          const r = await fetch('/healthz', { cache: 'no-store' })
+          if (r.ok) {
+            const h = await r.json()
+            if (!cancelled) setHealth({ state: 'ready', ...h })
+            fetch('/api/stats')
+              .then((x) => x.json())
+              .then((d) => !cancelled && setStats(d))
+              .catch(() => {})
+            return
+          }
+        } catch {
+          /* instance still starting */
+        }
+        if (!cancelled) setHealth({ state: attempt > 2 ? 'waking' : 'checking' })
+        await new Promise((res) => setTimeout(res, 3000))
+      }
+      if (!cancelled) setHealth({ state: 'down' })
+    }
+
+    probe()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -263,6 +293,26 @@ export default function App() {
         </div>
       )}
 
+      {health.state === 'waking' && (
+        <div className="banner">
+          <span className="spin" aria-hidden="true" />
+          Waking the server up &mdash; free hosting suspends it when idle. This
+          takes about a minute the first time, then it is fast.
+        </div>
+      )}
+      {health.state === 'down' && (
+        <div className="banner banner-warn">
+          The server is not responding. It may be restarting &mdash; try
+          reloading in a minute.
+        </div>
+      )}
+      {health.state === 'ready' && health.ai_quota_exhausted && (
+        <div className="banner">
+          The daily free-tier AI allowance is used up, so replies are direct
+          search results rather than written answers. Search is unaffected.
+        </div>
+      )}
+
       <main className="chat">
         {messages.length === 0 && (
           <div className="welcome">
@@ -338,11 +388,14 @@ export default function App() {
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask about listings, prices, locations…"
           maxLength={2000}
-          disabled={busy}
+          disabled={busy || health.state === 'waking'}
           dir={isRTL(input) ? 'rtl' : 'ltr'}
           aria-label="Your question"
         />
-        <button type="submit" disabled={busy || !input.trim()}>
+        <button
+          type="submit"
+          disabled={busy || !input.trim() || health.state === 'waking'}
+        >
           {busy ? '…' : 'Send'}
         </button>
       </form>
