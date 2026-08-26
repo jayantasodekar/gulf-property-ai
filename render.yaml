@@ -1,0 +1,32 @@
+# Render Blueprint - https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: gulf-property-ai
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      # Set this in the Render dashboard (Environment -> Add Secret File / Env Var).
+      # sync:false means Render prompts for it and never stores it in the repo.
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: PUBLIC_URL
+        value: https://gulf-property-ai.onrender.com
+      - key: LOG_LEVEL
+        value: INFO
+      # The free instance has 512 MB RAM. The multilingual embedding model needs
+      # ~600 MB resident, so this deployment uses the English-only model (~198 MB).
+      # Arabic listings remain retrievable through FTS5/BM25, which indexes Arabic
+      # script correctly; only Arabic semantic paraphrase matching is reduced.
+      - key: EMBEDDING_MODEL
+        value: sentence-transformers/all-MiniLM-L6-v2
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "20"
+      - key: RATE_LIMIT_PER_DAY
+        value: "200"
+      - key: GLOBAL_DAILY_BUDGET
+        value: "800"

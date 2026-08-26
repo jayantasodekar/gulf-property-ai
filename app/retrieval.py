@@ -150,6 +150,15 @@ class Retriever:
 
         self._embedder = None
         self._embed_model = self.meta.get("embedding_model", "")
+        from .paths import EMBEDDING_MODEL as CONFIGURED
+
+        if self._embed_model and CONFIGURED and self._embed_model != CONFIGURED:
+            log.warning(
+                "EMBEDDING_MODEL is set to %r but the index was built with %r. "
+                "Queries will use the index's model (the only correct choice). "
+                "Rebuild the index if you meant to switch.",
+                CONFIGURED, self._embed_model,
+            )
         log.info(
             "retriever ready: %d docs, dim=%s, model=%s",
             len(self.ids), self.meta.get("embedding_dim"), self._embed_model,
@@ -160,7 +169,11 @@ class Retriever:
         if self._embedder is None:
             from .index import get_embedder
 
-            self._embedder, self._embed_model = get_embedder(self._embed_model or None)
+            # strict: the query must be embedded by the same model that built
+            # the index, or the vectors are not comparable.
+            self._embedder, self._embed_model = get_embedder(
+                self._embed_model or None, strict=bool(self._embed_model)
+            )
         prefix = "query: " if "e5" in self._embed_model else ""
         vec = np.asarray(list(self._embedder.embed([prefix + text]))[0], dtype=np.float32)
         return vec / max(float(np.linalg.norm(vec)), 1e-9)

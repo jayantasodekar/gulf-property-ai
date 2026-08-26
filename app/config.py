@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT = Path(__file__).resolve().parent.parent
+from .paths import CORPUS_PATH, DB_PATH, EMBEDDING_MODEL, ROOT
 
 
 class Settings(BaseSettings):
@@ -43,9 +43,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # --- data -------------------------------------------------------------
-    db_path: Path = ROOT / "data" / "corpus.sqlite"
-    corpus_path: Path = ROOT / "data" / "corpus.jsonl.gz"
-    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    db_path: Path = DB_PATH
+    corpus_path: Path = CORPUS_PATH
+    embedding_model: str = EMBEDDING_MODEL
     web_dist: Path = ROOT / "web" / "dist"
 
     # --- security ---------------------------------------------------------

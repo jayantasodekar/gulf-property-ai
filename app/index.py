@@ -23,7 +23,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .config import settings
+from .paths import CORPUS_PATH, DB_PATH, EMBEDDING_MODEL
 
 log = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS meta (
 
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
-    p = path or settings.db_path
+    p = path or DB_PATH
     p.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(p), check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -136,16 +136,32 @@ def _search_text(rec: dict) -> str:
     return " · ".join(p for p in parts if p).strip()
 
 
-def get_embedder(model_name: str | None = None):
-    """Load the embedding model, falling back through multilingual options.
+def get_embedder(model_name: str | None = None, *, strict: bool = False):
+    """Load the embedding model.
 
-    Listing descriptions are frequently Arabic even on the English pages, so an
-    English-only model would silently degrade half the corpus.
+    `strict=True` means "load exactly this model or raise". Query embeddings
+    MUST use the same model the index was built with: two different 384-dim
+    models produce incompatible vector spaces, so silently substituting one
+    would not error -- it would just return quietly meaningless results. The
+    fallback chain is therefore only acceptable when *building* an index.
     """
     from fastembed import TextEmbedding
 
+    if strict:
+        if not model_name:
+            raise ValueError("strict=True requires an explicit model_name")
+        available = {m["model"] for m in TextEmbedding.list_supported_models()}
+        if model_name not in available:
+            raise RuntimeError(
+                f"index was built with embedding model {model_name!r}, which is not "
+                f"available in this environment. Rebuild the index or install that "
+                f"model -- querying with a different model returns meaningless results."
+            )
+        log.info("embedding model (strict): %s", model_name)
+        return TextEmbedding(model_name=model_name, threads=os.cpu_count() or 4), model_name
+
     preferred = [
-        model_name or settings.embedding_model,
+        model_name or EMBEDDING_MODEL,
         "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",  # 384d, 0.22GB
         "intfloat/multilingual-e5-large",  # 1024d, 2.24GB - better but heavy
         "BAAI/bge-small-en-v1.5",  # last resort: English-only
@@ -163,8 +179,8 @@ def get_embedder(model_name: str | None = None):
 
 
 def build(corpus_path: Path | None = None, db_path: Path | None = None) -> dict:
-    corpus_path = corpus_path or settings.corpus_path
-    db_path = db_path or settings.db_path
+    corpus_path = corpus_path or CORPUS_PATH
+    db_path = db_path or DB_PATH
     if not corpus_path.exists():
         raise FileNotFoundError(f"corpus not found: {corpus_path}. Run scraper/run.py first.")
 

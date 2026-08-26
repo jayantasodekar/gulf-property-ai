@@ -36,15 +36,22 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # --- expensive layer, deliberately isolated ------------------------------
-# Only the three files the index build actually needs are copied here, so
-# editing agent.py or retrieval.py does NOT invalidate the ~10 minute embedding
-# step below. The rest of app/ is copied afterwards.
-COPY app/__init__.py app/config.py app/index.py ./app/
+# Only the files the index build actually needs are copied here. paths.py holds
+# just the settings that change what the index CONTAINS (corpus + embedding
+# model); everything else lives in config.py, which is copied later. So editing
+# an LLM candidate, a rate limit, agent.py or retrieval.py does NOT invalidate
+# the ~12 minute embedding step below.
+COPY app/__init__.py app/paths.py app/index.py ./app/
 COPY data/corpus.jsonl.gz ./data/corpus.jsonl.gz
 
 # Builds the SQLite + FTS5 + vector index AND warms the embedding-model cache
 # into the image, so cold start is fast and a missing/corrupt corpus fails the
 # build loudly rather than the first request.
+ARG EMBEDDING_MODEL
+# Default is the English-only model: the free Render instance has 512 MB RAM
+# and the multilingual model needs ~600 MB resident. Arabic listings stay
+# retrievable via FTS5/BM25. Override with --build-arg for a larger host.
+ENV EMBEDDING_MODEL=${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
 RUN python -m app.index --build && python -m app.index --verify
 
 # --- cheap layers -------------------------------------------------------
