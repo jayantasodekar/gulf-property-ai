@@ -144,6 +144,9 @@ body {
 }
 
 .msg { display: flex; gap: 11px; margin-bottom: 22px; align-items: flex-start; }
+/* A question scrolled to the top of the thread sits flush against the header
+   without this; the offset keeps it readable. */
+.msg.user { scroll-margin-top: 14px; }
 
 .avatar {
   flex: none;

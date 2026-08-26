@@ -156,6 +156,8 @@ export default function App() {
   const [health, setHealth] = useState({ state: 'checking' })
   const bottomRef = useRef(null)
   const pinnedRef = useRef(true)
+  const lastUserRef = useRef(null)
+  const pendingTopScroll = useRef(false)
   const inputRef = useRef(null)
 
   // The free hosting tier suspends the instance after ~15 minutes idle, so a
@@ -195,15 +197,26 @@ export default function App() {
   }, [])
 
   // `messages` changes on every streamed token, so this effect runs dozens of
-  // times a second while an answer arrives. Two rules keep that usable:
+  // times a second while an answer arrives. Three rules keep that usable:
   //
-  //   1. Only follow the stream if the reader is already at the bottom. Once
-  //      they scroll up to read something, yanking them back down on the next
+  //   1. A long answer is read from its first line, not its last. Chasing the
+  //      bottom scrolls the opening straight off the top, leaving the reader
+  //      staring at the end of an answer they have not read. So on a new
+  //      question, park that question at the top and let the answer fill the
+  //      space beneath it.
+  //   2. Otherwise follow the stream only while the reader is already at the
+  //      bottom. Once they scroll up, yanking them back down on the next
   //      token makes the answer impossible to read.
-  //   2. Jump instantly rather than smoothly. A smooth scroll takes longer
+  //   3. Jump instantly rather than smoothly. A smooth scroll takes longer
   //      than the gap between tokens, so each one interrupts the last and the
-  //      page judders instead of scrolling.
+  //      view judders instead of scrolling.
   useEffect(() => {
+    if (pendingTopScroll.current && lastUserRef.current) {
+      pendingTopScroll.current = false
+      pinnedRef.current = false // the answer grows downward from here
+      lastUserRef.current.scrollIntoView({ block: 'start' })
+      return
+    }
     if (!pinnedRef.current) return
     bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [messages, status])
@@ -215,15 +228,17 @@ export default function App() {
     pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
   }
 
+  const lastUserIdx = messages.reduce((a, m, i) => (m.role === 'user' ? i : a), -1)
+
   async function send(text) {
     const question = (text ?? input).trim()
     if (!question || busy) return
     setInput('')
     setBusy(true)
     setStatus('Thinking…')
-    // Asking something is an explicit request to see the answer, so follow the
-    // new stream even if they had scrolled up to read the previous one.
-    pinnedRef.current = true
+    // Asking something is an explicit request to see the answer: park the
+    // question at the top of the view once React has rendered it.
+    pendingTopScroll.current = true
 
     const history = messages
       .filter((m) => m.role === 'user' || (m.role === 'assistant' && m.content))
@@ -411,7 +426,11 @@ export default function App() {
         )}
 
         {messages.map((m, i) => (
-          <div key={i} className={`msg ${m.role}`}>
+          <div
+            key={i}
+            className={`msg ${m.role}`}
+            ref={m.role === 'user' && i === lastUserIdx ? lastUserRef : null}
+          >
             <div className="avatar">{m.role === 'user' ? 'You' : 'AI'}</div>
             <div className="bubble-wrap">
               <div
