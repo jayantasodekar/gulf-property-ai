@@ -29,7 +29,7 @@ test:
 	$(PY) -m pytest
 
 lint:
-	$(PY) -m ruff check app scraper tests
+	$(PY) -m ruff check app scraper tests eval
 
 eval:
 	$(PY) -m eval.run
