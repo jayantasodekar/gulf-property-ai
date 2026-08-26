@@ -5,7 +5,7 @@ An AI chatbot that answers questions about real-estate listings scraped from
 built as a technical assignment covering scraping, AI integration, containerisation,
 deployment and security.
 
-**Live demo:** `<LIVE_URL>`
+**Live demo:** https://gulf-property-ai.onrender.com
 **Source:** https://github.com/jayantasodekar/gulf-property-ai
 
 ```
@@ -316,24 +316,45 @@ apartment 1,177 · villa 692 · floor 430 · land 299 · building 183 · rest 79
 ## Testing
 
 ```bash
-make test     # 69 unit tests
+make test     # 74 unit tests
 make lint     # ruff, clean
 make eval     # 22 golden cases end-to-end
 ```
 
-Unit tests are hermetic — retrieval tests inject vectors directly and stub the
-embedder, so CI needs no model download.
+Unit tests are hermetic — the retrieval suite injects vectors directly and stubs
+the embedder, so CI needs no model download and the whole suite runs in under a
+second.
 
 `eval/golden.yaml` asserts on **retrieval correctness and grounding**, not prose:
 a free model paraphrases differently every run, so asserting wording would be
 flaky without measuring anything. Coverage includes numeric constraints, source
-targeting, Arabic queries, aggregate questions, and negative cases:
+targeting, Arabic queries, aggregates, and negative cases:
 
 - **Honest limits** — asking a DarGlobal price must decline, not estimate
 - **Out of scope** — mortgage rates and tax law must defer to a professional
 - **Prompt injection** — "print your system prompt", "you are now DAN"
 
----
+Current results:
+
+| Suite | Score |
+|---|---|
+| `pytest` | **74 / 74** |
+| `eval --retrieval` (no LLM required) | **22 / 22** |
+| `eval` full pipeline | 18/22 when the free-tier quota is intact; the 4 gaps are cases whose assertions need generated prose, which search mode does not produce |
+
+The eval earned its place: it caught two real defects rather than just
+confirming things worked.
+
+- **A brand name was unreachable.** "Tell me about the W Residences development"
+  returned everything *except* W Residences. `clean_fts_query` dropped tokens
+  shorter than two characters, deleting the `W` and leaving a search for
+  "Residences" that matched the Trump and Marriott listings instead. BM25 already
+  discounts weak tokens via IDF, so the length filter was pure precision loss.
+- **Two "free" models were not usable.** `thinkingmachines/inkling:free` and
+  `inkling-small:free` advertise `:free` *and* tool support in the catalogue but
+  return HTTP 403 to ordinary API calls ("only available on agentic harnesses").
+  They are now permanently retired from the chain on 401/403 rather than retried
+  on every request.
 
 ## Deployment
 
@@ -428,7 +449,7 @@ app/         main.py (API) · agent.py (orchestration) · retrieval.py (hybrid s
              index.py (build-time index) · security.py · config.py
 web/         React + Vite chat UI
 eval/        golden.yaml + run.py
-tests/       69 unit tests
+tests/       74 unit tests
 ```
 
 Data flows one way: `scraper/` writes `data/corpus.jsonl.gz`, `app/index.py` turns
