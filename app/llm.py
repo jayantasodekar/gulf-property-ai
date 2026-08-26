@@ -31,20 +31,32 @@ class NoModelAvailable(RuntimeError):
 
 @dataclass
 class ModelState:
-    """Tracks per-model health so we skip models that just rate-limited us."""
+    """Tracks per-model health so we skip models that just failed us."""
 
     model_id: str
     cooldown_until: float = 0.0
     failures: int = 0
     successes: int = 0
+    disabled_reason: str = ""
 
     @property
     def available(self) -> bool:
-        return time.monotonic() >= self.cooldown_until
+        return not self.disabled_reason and time.monotonic() >= self.cooldown_until
 
     def penalize(self, seconds: float = 60.0) -> None:
         self.failures += 1
         self.cooldown_until = time.monotonic() + seconds
+
+    def disable(self, reason: str) -> None:
+        """Retire a model permanently.
+
+        Some catalogue entries advertise `:free` + tool support but reject
+        ordinary API calls with 403 ("only available on agentic harnesses").
+        That is an entitlement, not a transient fault, so retrying it forever
+        would burn a slot in the chain on every single request.
+        """
+        self.disabled_reason = reason
+        log.warning("permanently disabling %s: %s", self.model_id, reason)
 
     def succeed(self) -> None:
         self.successes += 1
@@ -58,6 +70,28 @@ class OpenRouterClient:
     base_url: str = field(default_factory=lambda: settings.openrouter_base_url)
     states: list[ModelState] = field(default_factory=list)
     discovered: bool = False
+    # OpenRouter meters free models per ACCOUNT per day, not per model. When
+    # that cap is hit every `:free` model returns 429 simultaneously, so
+    # rotating through the chain is pointless and just wastes latency on a
+    # user request. We record it once and skip straight to search mode until
+    # the quota resets.
+    account_quota_until: float = 0.0
+
+    @property
+    def account_quota_exhausted(self) -> bool:
+        return time.monotonic() < self.account_quota_until
+
+    def _note_429(self, body: str, state: ModelState) -> None:
+        if "free-models-per-day" in body or "per-day" in body:
+            self.account_quota_until = time.monotonic() + 900  # re-probe in 15 min
+            log.warning(
+                "OpenRouter free-tier DAILY quota exhausted (account-wide). "
+                "Serving search mode until it resets; adding credits raises the cap."
+            )
+            for st in self.states:
+                st.penalize(900)
+        else:
+            state.penalize(90)
 
     def __post_init__(self) -> None:
         if not self.states:
@@ -119,12 +153,14 @@ class OpenRouterClient:
         return {
             "enabled": self.enabled,
             "discovered": self.discovered,
+            "account_quota_exhausted": self.account_quota_exhausted,
             "models": [
                 {
                     "id": s.model_id,
                     "available": s.available,
                     "failures": s.failures,
                     "successes": s.successes,
+                    "disabled": s.disabled_reason or None,
                 }
                 for s in self.states
             ],
@@ -141,6 +177,8 @@ class OpenRouterClient:
         """Non-streaming completion. Returns the assistant message dict."""
         if not self.enabled:
             raise NoModelAvailable("no API key configured")
+        if self.account_quota_exhausted:
+            raise NoModelAvailable("free-tier daily quota exhausted")
 
         last_error: Exception | None = None
         for _ in range(len(self.states)):
@@ -164,8 +202,14 @@ class OpenRouterClient:
                         json=payload,
                     )
                 if r.status_code == 429:
-                    log.warning("%s rate-limited; rotating", state.model_id)
-                    state.penalize(90)
+                    self._note_429(r.text, state)
+                    last_error = RuntimeError("HTTP 429")
+                    if self.account_quota_exhausted:
+                        break
+                    continue
+                if r.status_code in (401, 403):
+                    state.disable(f"HTTP {r.status_code}: {r.text[:120]}")
+                    last_error = RuntimeError(f"HTTP {r.status_code}")
                     continue
                 if r.status_code >= 400:
                     log.warning("%s HTTP %s: %s", state.model_id, r.status_code, r.text[:200])
@@ -198,6 +242,8 @@ class OpenRouterClient:
         """Stream assistant text deltas. Used for the final answer turn."""
         if not self.enabled:
             raise NoModelAvailable("no API key configured")
+        if self.account_quota_exhausted:
+            raise NoModelAvailable("free-tier daily quota exhausted")
 
         last_error: Exception | None = None
         for _ in range(len(self.states)):
@@ -220,8 +266,16 @@ class OpenRouterClient:
                         json=payload,
                     ) as r:
                         if r.status_code == 429:
-                            await r.aread()
-                            state.penalize(90)
+                            body = (await r.aread()).decode("utf-8", "ignore")
+                            self._note_429(body, state)
+                            last_error = RuntimeError("HTTP 429")
+                            if self.account_quota_exhausted:
+                                break
+                            continue
+                        if r.status_code in (401, 403):
+                            body = (await r.aread()).decode("utf-8", "ignore")[:120]
+                            state.disable(f"HTTP {r.status_code}: {body}")
+                            last_error = RuntimeError(f"HTTP {r.status_code}")
                             continue
                         if r.status_code >= 400:
                             body = (await r.aread()).decode("utf-8", "ignore")[:200]

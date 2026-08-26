@@ -22,12 +22,14 @@ class Settings(BaseSettings):
     # Verified against GET /api/v1/models?supported_parameters=tools.
     # At startup we intersect this with the live catalogue, so a model being
     # retired degrades to the next one instead of breaking the app.
+    # Verified by probing the live API, not just the catalogue: the
+    # thinkingmachines/inkling* entries advertise :free + tools but reject
+    # ordinary API calls with 403 ("only available on agentic harnesses"),
+    # so they are excluded rather than wasting a slot on every request.
     model_candidates: str = (
-        "thinkingmachines/inkling:free,"
         "dots-studio/dots-3-note-preview:free,"
         "nvidia/nemotron-3.5-lightning:free,"
         "poolside/laguna-s-2.1:free,"
-        "thinkingmachines/inkling-small:free,"
         "liquid/lfm-2.5-2.6b:free"
     )
     request_timeout: float = 75.0
