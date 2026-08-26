@@ -5,7 +5,8 @@ An AI chatbot that answers questions about real-estate listings scraped from
 built as a technical assignment covering scraping, AI integration, containerisation,
 deployment and security.
 
-**Live demo: `<LIVE_URL>`**
+**Live demo:** `<LIVE_URL>`
+**Source:** https://github.com/jayantasodekar/gulf-property-ai
 
 ```
 Q: "Show me 3-bedroom apartments in Jeddah under 2 million SAR"
@@ -22,7 +23,7 @@ as cards beside it so any claim can be verified in one click.
 ## Quick start
 
 ```bash
-git clone <repo> && cd gulf-property-ai
+git clone https://github.com/jayantasodekar/gulf-property-ai && cd gulf-property-ai
 cp .env.example .env          # add your OpenRouter key (see below)
 docker compose up --build     # http://localhost:7860
 ```
